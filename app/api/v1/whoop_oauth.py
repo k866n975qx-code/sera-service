@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.db import SessionLocal, engine
 from app.models.whoop_token import WhoopToken
+from typing import Optional
 
 router = APIRouter(tags=["whoop-oauth"])
 
@@ -139,3 +140,90 @@ def whoop_test():
             )
 
         return resp.json()
+    
+    REFRESH_SAFETY_SECONDS = 60  # refresh 1 minute before official expiry
+
+
+def get_valid_access_token(db: Optional[Session] = None) -> str:
+    """
+    Central place to get a valid WHOOP access token.
+
+    - Loads latest WhoopToken from DB
+    - If expires_at is in the past or near, refreshes using refresh_token
+    - Updates DB row with new tokens + expiry
+    - Returns a guaranteed-fresh access_token
+    """
+    close_db = False
+    if db is None:
+        db = SessionLocal()
+        close_db = True
+
+    try:
+        token: WhoopToken | None = (
+            db.query(WhoopToken)
+            .order_by(WhoopToken.id.desc())
+            .first()
+        )
+
+        if token is None:
+            raise HTTPException(status_code=503, detail="WHOOP not connected")
+
+        # If we don't have an expires_at timestamp, just try the token as-is
+        now = datetime.utcnow()
+        if token.expires_at is not None:
+            # If token is still valid with a small safety window, just return it
+            if token.expires_at - timedelta(seconds=REFRESH_SAFETY_SECONDS) > now:
+                return token.access_token
+
+        # Otherwise, refresh the token via WHOOP OAuth
+        if not token.refresh_token:
+            # No refresh token stored – user must re-link WHOOP
+            raise HTTPException(
+                status_code=503,
+                detail="WHOOP refresh token missing – please reconnect WHOOP",
+            )
+
+        token_url = f"{settings.WHOOP_API_BASE}/oauth/token"
+        data = {
+            "grant_type": "refresh_token",
+            "refresh_token": token.refresh_token,
+            "client_id": settings.WHOOP_CLIENT_ID,
+            "client_secret": settings.WHOOP_CLIENT_SECRET,
+        }
+
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.post(token_url, data=data)
+            if resp.status_code != 200:
+                raise HTTPException(
+                    status_code=resp.status_code,
+                    detail=f"WHOOP refresh failed: {resp.text}",
+                )
+
+            payload = resp.json()
+            new_access_token = payload.get("access_token")
+            new_refresh_token = payload.get("refresh_token") or token.refresh_token
+            expires_in = payload.get("expires_in")  # seconds
+
+            if not new_access_token:
+                raise HTTPException(
+                    status_code=500,
+                    detail="WHOOP refresh response missing access_token",
+                )
+
+            token.access_token = new_access_token
+            token.refresh_token = new_refresh_token
+
+            if isinstance(expires_in, (int, float)):
+                token.expires_at = datetime.utcnow() + timedelta(
+                    seconds=int(expires_in)
+                )
+
+            db.add(token)
+            db.commit()
+            db.refresh(token)
+
+            return token.access_token
+
+    finally:
+        if close_db:
+            db.close()

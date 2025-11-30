@@ -17,13 +17,55 @@ from app.models.whoop import (
     WhoopBodyMeasurement,
     WhoopUserProfile,
 )
-from app.models.whoop_token import WhoopToken
-from app.api.v1.whoop_oauth import get_valid_access_token
+from pathlib import Path
+import json
 import httpx
 
 
 
 router = APIRouter(tags=["whoop"])
+
+CREDENTIALS_DEFAULT_PATH = "/home/jose/mywhoop/credentials.json"
+
+def _load_access_token_from_credentials() -> str:
+    """
+    Load the current WHOOP access_token from the MyWhoop credentials.json file.
+
+    MyWhoop runs as a separate Docker service and is responsible for handling
+    OAuth and token refresh. SERA just reads the latest access_token from disk.
+    """
+    # Allow override via environment (through Settings) but fall back to the
+    # known Ubuntu path where the mywhoop volume is mounted.
+    credentials_path = getattr(
+        settings,
+        "WHOOP_CREDENTIALS_PATH",
+        None,
+    ) or CREDENTIALS_DEFAULT_PATH
+
+    p = Path(credentials_path)
+
+    if not p.exists():
+        raise HTTPException(
+            status_code=500,
+            detail=f"WHOOP credentials file not found at {credentials_path}",
+        )
+
+    try:
+        data = json.loads(p.read_text())
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to read WHOOP credentials: {e}",
+        )
+
+    token = data.get("access_token")
+    if not token:
+        raise HTTPException(
+            status_code=500,
+            detail="WHOOP credentials file is missing 'access_token'",
+        )
+
+    return token
 
 
 class WhoopIn(BaseModel):
@@ -112,8 +154,9 @@ def import_whoop_daily(date: str):
     end_iso = end_dt.isoformat().replace("+00:00", "Z")
 
     db: Session = SessionLocal()
-    access_token = get_valid_access_token(db)
     try:
+        # Load WHOOP access token from MyWhoop credentials.json
+        access_token = _load_access_token_from_credentials()
 
         # ---------- RECOVERY ----------
         recovery_url = f"{settings.WHOOP_API_BASE}/developer/v2/recovery"

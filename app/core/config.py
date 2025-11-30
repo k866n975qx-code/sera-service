@@ -12,9 +12,12 @@ class Settings:
     WHOOP_CLIENT_ID = os.getenv("WHOOP_CLIENT_ID")
     WHOOP_CLIENT_SECRET = os.getenv("WHOOP_CLIENT_SECRET")
     WHOOP_REDIRECT_URI = os.getenv("WHOOP_REDIRECT_URI")
+    WHOOP_CREDENTIALS_PATH = os.getenv(
+        "WHOOP_CREDENTIALS_PATH",
+        "/home/jose/mywhoop/credentials.json",
+    )
 
     # Official WHOOP OAuth endpoints
-    # from: https://developer.whoop.com/docs/developing/oauth/ and API docs  [oai_citation:7‡WHOOP Developer](https://developer.whoop.com/docs/developing/oauth/?utm_source=chatgpt.com)
     WHOOP_AUTH_URL = "https://api.prod.whoop.com/oauth/oauth2/auth"
     WHOOP_TOKEN_URL = "https://api.prod.whoop.com/oauth/oauth2/token"
 

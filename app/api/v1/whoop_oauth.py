@@ -169,12 +169,6 @@ def get_valid_access_token(db: Optional[Session] = None) -> str:
         if token is None:
             raise HTTPException(status_code=503, detail="WHOOP not connected")
 
-        # If we don't have an expires_at timestamp, just try the token as-is
-        now = datetime.utcnow()
-        if token.expires_at is not None:
-            # If token is still valid with a small safety window, just return it
-            if token.expires_at - timedelta(seconds=REFRESH_SAFETY_SECONDS) > now:
-                return token.access_token
 
         # Otherwise, refresh the token via WHOOP OAuth
         if not token.refresh_token:

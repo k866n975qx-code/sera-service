@@ -223,3 +223,19 @@ def get_valid_access_token(db: Optional[Session] = None) -> str:
     finally:
         if close_db:
             db.close()
+
+@router.get("/whoop/refresh")
+def whoop_refresh():
+    """
+    Force a WHOOP token refresh using the stored refresh_token.
+    Safe to call from a systemd timer every 45 minutes.
+    """
+    if not engine or not SessionLocal:
+        raise HTTPException(503, "DB not configured")
+
+    db: Session = SessionLocal()
+    try:
+        access_token = get_valid_access_token(db)
+        return {"status": "ok", "access_token": access_token}
+    finally:
+        db.close()            

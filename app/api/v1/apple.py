@@ -26,34 +26,6 @@ class AppleIn(BaseModel):
     raw_payload: dict | None = None
 
 
-@router.post("/apple-health")
-def ingest_apple(payload: AppleIn):
-    if not engine or not SessionLocal:
-        raise HTTPException(503, "DB not configured (POSTGRES_DSN missing)")
-
-    db: Session = SessionLocal()
-    try:
-        d = DateType.fromisoformat(payload.date)
-        data = payload.dict(exclude={"date"})
-
-        existing = (
-            db.query(AppleHealthDaily)
-            .filter(AppleHealthDaily.date == d)
-            .one_or_none()
-        )
-
-        if existing:
-            for field, value in data.items():
-                setattr(existing, field, value)
-        else:
-            row = AppleHealthDaily(date=d, **data)
-            db.add(row)
-
-        # WHOOP-primary/Apple-fallback merge for this date
-        merge_for_date(db, d)
-
-        db.commit()
-    finally:
-        db.close()
-
-    return {"status": "ok", "date": payload.date}
+@router.post("/v1/apple-health")
+async def apple_health(payload: Dict[str, Any]):
+    return {"status": "ok"}

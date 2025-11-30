@@ -182,6 +182,7 @@ def get_valid_access_token(db: Optional[Session] = None) -> str:
         data = {
             "grant_type": "refresh_token",
             "refresh_token": token.refresh_token,
+            "redirect_uri": settings.WHOOP_REDIRECT_URI,
             "client_id": settings.WHOOP_CLIENT_ID,
             "client_secret": settings.WHOOP_CLIENT_SECRET,
         }

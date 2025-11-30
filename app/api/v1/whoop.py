@@ -18,8 +18,9 @@ from app.models.whoop import (
     WhoopUserProfile,
 )
 from app.models.whoop_token import WhoopToken
-
+from app.api.v1.whoop_oauth import get_valid_access_token
 import httpx
+
 
 
 router = APIRouter(tags=["whoop"])
@@ -111,13 +112,8 @@ def import_whoop_daily(date: str):
     end_iso = end_dt.isoformat().replace("+00:00", "Z")
 
     db: Session = SessionLocal()
+    access_token = get_valid_access_token(db)
     try:
-        # load token
-        token_row = db.query(WhoopToken).order_by(WhoopToken.id.asc()).first()
-        if not token_row or not token_row.access_token:
-            raise HTTPException(404, "No WHOOP token stored")
-
-        access_token = token_row.access_token
 
         # ---------- RECOVERY ----------
         recovery_url = f"{settings.WHOOP_API_BASE}/developer/v2/recovery"

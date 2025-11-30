@@ -123,3 +123,18 @@ async def apple_health(payload: Dict[str, Any]):
 
     finally:
         db.close()
+
+@router.get("/apple-health/dates")
+async def apple_health_dates():
+    """
+    Return a list of dates for which Apple Health daily records exist.
+    """
+    db: Session = SessionLocal()
+    try:
+        rows = db.query(AppleHealthDaily.date).order_by(AppleHealthDaily.date.desc()).all()
+        dates = [r[0].isoformat() for r in rows]
+        return {"status": "ok", "dates": dates}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Apple dates fetch failed: {e}")
+    finally:
+        db.close()

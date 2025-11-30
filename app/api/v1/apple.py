@@ -138,3 +138,41 @@ async def apple_health_dates():
         raise HTTPException(status_code=500, detail=f"Apple dates fetch failed: {e}")
     finally:
         db.close()
+
+@router.get("/apple-health/daily")
+async def apple_health_daily(date: str):
+    """
+    Return the Apple Health daily record for a given date (YYYY-MM-DD).
+    """
+    db: Session = SessionLocal()
+    try:
+        try:
+            d = datetime.fromisoformat(date).date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format, expected YYYY-MM-DD")
+
+        row = (
+            db.query(AppleHealthDaily)
+            .filter(AppleHealthDaily.date == d)
+            .one_or_none()
+        )
+
+        if row is None:
+            return {"status": "ok", "date": date, "found": False}
+
+        return {
+            "status": "ok",
+            "date": row.date.isoformat(),
+            "found": True,
+            "weight_kg": row.weight_kg,
+            "bodyfat_pct": row.bodyfat_pct,
+            "rhr_bpm": row.rhr_bpm,
+            "hrv_ms": row.hrv_ms,
+            "raw": row.raw_payload,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Apple daily fetch failed: {e}")
+    finally:
+        db.close()

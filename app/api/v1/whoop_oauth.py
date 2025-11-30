@@ -178,7 +178,7 @@ def get_valid_access_token(db: Optional[Session] = None) -> str:
                 detail="WHOOP refresh token missing – please reconnect WHOOP",
             )
 
-        token_url = f"{settings.WHOOP_API_BASE}/oauth/token"
+        token_url = settings.WHOOP_TOKEN_URL
         data = {
             "grant_type": "refresh_token",
             "refresh_token": token.refresh_token,

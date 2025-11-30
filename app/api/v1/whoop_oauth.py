@@ -10,6 +10,9 @@ from app.core.db import SessionLocal, engine
 from app.models.whoop_token import WhoopToken
 from typing import Optional
 
+
+REFRESH_SAFETY_SECONDS = 60  # refresh 1 minute before official expiry
+
 router = APIRouter(tags=["whoop-oauth"])
 
 
@@ -140,8 +143,6 @@ def whoop_test():
             )
 
         return resp.json()
-    
-    REFRESH_SAFETY_SECONDS = 60  # refresh 1 minute before official expiry
 
 
 def get_valid_access_token(db: Optional[Session] = None) -> str:

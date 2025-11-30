@@ -1,158 +1,32 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from datetime import datetime, date as DateType
-from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException
-from sqlalchemy.orm import Session
-
-from app.core.db import SessionLocal
-from app.models.apple import AppleHealthDaily
-
-router = APIRouter()
+from sqlalchemy import Column, Integer, Date, Float, JSON, DateTime, UniqueConstraint
+from app.core.db import Base
 
 
-def _parse_dt(dt_str: str | None) -> datetime | None:
-    if not dt_str or not isinstance(dt_str, str):
-        return None
-    try:
-        # HAE uses ISO8601 with offset, sometimes "Z"
-        if dt_str.endswith("Z"):
-            dt_str = dt_str.replace("Z", "+00:00")
-        return datetime.fromisoformat(dt_str)
-    except Exception:
-        return None
+class AppleHealthDaily(Base):
+    __tablename__ = "apple_health_daily"
+    __table_args__ = (UniqueConstraint("date", name="uq_apple_health_date"),)
 
+    id = Column(Integer, primary_key=True, index=True)
+    date = Column(Date, nullable=False)
 
-def _to_kg(value: float | int | None, unit: str | None) -> float | None:
-    if value is None:
-        return None
-    if not isinstance(value, (int, float)):
-        return None
-    if unit and unit.lower() in ("kg", "kilogram", "kilograms"):
-        return float(value)
-    if unit and unit.lower() in ("lb", "lbs", "pound", "pounds"):
-        return float(value) * 0.45359237
-    # fallback: assume kg
-    return float(value)
+    # Core metrics we care about from Apple Health
+    weight_kg = Column(Float)
+    bodyfat_pct = Column(Float)
+    rhr_bpm = Column(Float)
+    hrv_ms = Column(Float)
 
+    # Extra fields you may use later (sleep, hydration, etc.)
+    sleep_hours = Column(Float)
+    sleep_efficiency_pct = Column(Float)
+    deep_sleep_pct = Column(Float)
+    rem_sleep_pct = Column(Float)
+    hydration_pct = Column(Float)
 
-@router.post("/apple-health", tags=["apple-health"])
-async def apple_health(payload: Dict[str, Any]):
-    """
-    Ingest Health Auto Export JSON payload and upsert into apple_health_daily.
+    # Raw JSON records from Health Auto Export for this date
+    raw_payload = Column(JSON)
 
-    Expected format (per HAE docs):
-    {
-      "BodyMass": [
-        {"uuid": "...", "date": "...", "value": 75.2, "unit": "kg", "source": "..."},
-        ...
-      ],
-      "BodyFatPercentage": [
-        {...}
-      ],
-      "RestingHeartRate": [
-        {...}
-      ],
-      "HeartRateVariabilitySDNN": [
-        {...}
-      ],
-      ...
-    }
-    """
-    db: Session = SessionLocal()
-
-    # Per-date aggregate
-    # { date: {"weight_kg": ..., "bodyfat_pct": ..., "rhr_bpm": ..., "hrv_ms": ..., "raw": [records...] } }
-    per_date: Dict[DateType, Dict[str, Any]] = defaultdict(
-        lambda: {
-            "weight_kg": None,
-            "bodyfat_pct": None,
-            "rhr_bpm": None,
-            "hrv_ms": None,
-            "raw": [],
-        }
-    )
-
-    try:
-        for data_type, records in payload.items():
-            if not isinstance(records, list):
-                continue
-
-            for rec in records:
-                if not isinstance(rec, dict):
-                    continue
-
-                dt = _parse_dt(rec.get("date"))
-                if not dt:
-                    continue
-
-                d = dt.date()
-                bucket = per_date[d]
-                # keep all raw records for this date
-                bucket["raw"].append({"type": data_type, **rec})
-
-                value = rec.get("value")
-                unit = rec.get("unit")
-                # Map common HAE types into our daily summary fields
-                t = data_type
-
-                # Weight
-                if t in ("BodyMass", "BodyMassIndex"):
-                    kg = _to_kg(value, unit)
-                    if kg is not None:
-                        bucket["weight_kg"] = kg
-
-                # Body fat percentage
-                elif t in ("BodyFatPercentage",):
-                    if isinstance(value, (int, float)):
-                        bucket["bodyfat_pct"] = float(value)
-
-                # Resting heart rate
-                elif t in ("RestingHeartRate",):
-                    if isinstance(value, (int, float)):
-                        bucket["rhr_bpm"] = float(value)
-
-                # HRV (ms) – SDNN or RMSSD depending on how you configure HAE
-                elif t in ("HeartRateVariabilitySDNN", "HeartRateVariabilityRMSSD"):
-                    if isinstance(value, (int, float)):
-                        bucket["hrv_ms"] = float(value)
-
-                # Sleep / hydration etc. can be added later
-                # SleepAnalysis, Water, etc. left for future mapping
-
-        # Now upsert into apple_health_daily per date
-        for d, data in per_date.items():
-            row = (
-                db.query(AppleHealthDaily)
-                .filter(AppleHealthDaily.date == d)
-                .one_or_none()
-            )
-
-            if row is None:
-                row = AppleHealthDaily(date=d)
-                db.add(row)
-
-            # Only overwrite if we actually have a value
-            if data["weight_kg"] is not None:
-                row.weight_kg = data["weight_kg"]
-            if data["bodyfat_pct"] is not None:
-                row.bodyfat_pct = data["bodyfat_pct"]
-            if data["rhr_bpm"] is not None:
-                row.rhr_bpm = data["rhr_bpm"]
-            if data["hrv_ms"] is not None:
-                row.hrv_ms = data["hrv_ms"]
-
-            # merge/overwrite raw payload for that date
-            row.raw_payload = data["raw"]
-
-        db.commit()
-        return {"status": "ok", "dates": [str(d) for d in per_date.keys()]}
-
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Apple ingest failed: {e}")
-
-    finally:
-        db.close()
+    created_at = Column(DateTime, default=datetime.utcnow)

@@ -1,0 +1,52 @@
+from datetime import datetime
+from sqlalchemy import (
+    Column,
+    Integer,
+    Float,
+    Date,
+    DateTime,
+    String,
+    JSON,
+    ForeignKey,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import relationship
+
+from app.core.db import Base
+
+
+class SeraDailySnapshot(Base):
+    __tablename__ = "sera_daily_snapshot"
+    __table_args__ = (UniqueConstraint("date", name="uq_snapshot_date"),)
+
+    id = Column(Integer, primary_key=True)
+    date = Column(Date, nullable=False)
+
+    # canonical metrics (WHOOP primary, Apple fallback later)
+    hrv_ms = Column(Float)
+    rhr_bpm = Column(Float)
+    sleep_hours = Column(Float)
+    sleep_efficiency_pct = Column(Float)
+    deep_sleep_pct = Column(Float)
+    rem_sleep_pct = Column(Float)
+    weight_kg = Column(Float)
+    bodyfat_pct = Column(Float)
+    hydration_pct = Column(Float)
+    recovery_score = Column(Integer)
+    strain = Column(Float)
+    respiratory_rate = Column(Float)
+    spo2_pct = Column(Float)
+
+    # readiness (to be filled in later)
+    readiness_index = Column(Integer)
+    readiness_zone = Column(String(16))
+    flags = Column(JSON)
+    insight = Column(String(512))
+
+    apple_health_id = Column(Integer, ForeignKey("apple_health_daily.id"))
+    whoop_id = Column(Integer, ForeignKey("whoop_daily.id"))
+
+    apple_health = relationship("AppleHealthDaily")
+    whoop = relationship("WhoopDaily")
+
+    created_at = Column(DateTime, default=datetime.utcnow)

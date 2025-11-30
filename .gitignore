@@ -1,0 +1,20 @@
+# ---- Python bytecode / cache ----
+__pycache__/
+*.py[cod]
+*.pyo
+
+# ---- Virtual environments (Mac dev only) ----
+venv/
+
+# ---- Environment files (local secrets) ----
+.env
+*.env
+
+# ---- macOS junk ----
+.DS_Store
+__MACOSX/
+
+# ---- Editor/IDE junk (future-proof) ----
+.vscode/
+.idea/
+*.swp

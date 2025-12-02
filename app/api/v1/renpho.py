@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 from datetime import datetime
-from typing import List, Optional
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
+from sqlalchemy.orm import Session
 
 from app.core.db import SessionLocal
 from app.models.renpho import RenphoWeightEntry
@@ -16,107 +18,58 @@ def get_db():
     finally:
         db.close()
 
-# ---- Helpers ----
-
-def parse_iso(dt_str: str) -> datetime:
-    try:
-        return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-    except Exception:
-        raise HTTPException(status_code=400, detail=f"Invalid ISO datetime: {dt_str}")
-
-# ---- Endpoints ----
 
 @router.get("/dates")
 def get_renpho_dates(db: Session = Depends(get_db)):
-    rows = db.query(RenphoMeasurement.date).distinct().all()
-    dates = sorted(list({r[0].strftime("%Y-%m-%d") for r in rows}))
-    return {"status": "ok", "dates": dates}
-
-@router.post("/")
-def save_renpho_measurements(
-    data: List[dict],
-    db: Session = Depends(get_db)
-):
     """
-    Accepts an array of Renpho measurement payloads.
-    Each item must contain:
-      - date (ISO string)
-      - weight_kg
-      - bodyfat_pct
-      - muscle_mass_kg
-      - water_pct
-      - bone_mass_kg
+    Return all dates (YYYY-MM-DD) where we have at least one Renpho measurement.
     """
-
-    saved = []
-
-    for item in data:
-        if "date" not in item:
-            raise HTTPException(status_code=400, detail="Missing 'date' in payload")
-
-        dt = parse_iso(item["date"])
-
-        entry = RenphoMeasurement(
-            date=dt,
-            weight_kg=item.get("weight_kg"),
-            bodyfat_pct=item.get("bodyfat_pct"),
-            muscle_mass_kg=item.get("muscle_mass_kg"),
-            water_pct=item.get("water_pct"),
-            bone_mass_kg=item.get("bone_mass_kg"),
-        )
-
-        db.add(entry)
-        saved.append(item)
-
-    db.commit()
-
-    return {"status": "ok", "count": len(saved)}
-
-@router.get("/daily/{date}")
-def get_renpho_daily(date: str, db: Session = Depends(get_db)):
-    """
-    Returns all Renpho metrics for a given date (YYYY-MM-DD)
-    """
-
-    try:
-        target = datetime.fromisoformat(date)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid date format, expected YYYY-MM-DD")
-
     rows = (
-        db.query(RenphoMeasurement)
-        .filter(RenphoMeasurement.date.like(f"{date}%"))
-        .order_by(RenphoMeasurement.date.asc())
+        db.query(func.date(RenphoWeightEntry.timestamp))
+        .distinct()
+        .order_by(func.date(RenphoWeightEntry.timestamp))
         .all()
     )
+    dates = [r[0].isoformat() for r in rows]
+    return {"status": "ok", "dates": dates}
 
-    if not rows:
-        return {"status": "ok", "date": date, "found": False, "raw": []}
 
-    merged = {
-        "weight_kg": rows[-1].weight_kg,
-        "bodyfat_pct": rows[-1].bodyfat_pct,
-        "muscle_mass_kg": rows[-1].muscle_mass_kg,
-        "water_pct": rows[-1].water_pct,
-        "bone_mass_kg": rows[-1].bone_mass_kg,
-    }
+@router.get("/daily/{date_str}")
+def get_renpho_daily(date_str: str, db: Session = Depends(get_db)):
+    """
+    Return the latest Renpho measurement for a given date (YYYY-MM-DD).
+    """
+    try:
+        target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format, expected YYYY-MM-DD")
 
-    raw = [
-        {
-            "date": r.date.isoformat(),
-            "weight_kg": r.weight_kg,
-            "bodyfat_pct": r.bodyfat_pct,
-            "muscle_mass_kg": r.muscle_mass_kg,
-            "water_pct": r.water_pct,
-            "bone_mass_kg": r.bone_mass_kg,
-        }
-        for r in rows
-    ]
+    entry: Optional[RenphoWeightEntry] = (
+        db.query(RenphoWeightEntry)
+        .filter(func.date(RenphoWeightEntry.timestamp) == target_date)
+        .order_by(RenphoWeightEntry.timestamp.desc())
+        .first()
+    )
+
+    if not entry:
+        return {"status": "ok", "date": date_str, "found": False}
 
     return {
         "status": "ok",
-        "date": date,
+        "date": date_str,
         "found": True,
-        "snapshot": merged,
-        "raw": raw,
+        "weight_kg": entry.weight_kg,
+        "bodyfat_pct": entry.body_fat_pct,
+        "bmi": entry.bmi,
+        "muscle_mass_kg": entry.muscle_mass_kg,
+        "bone_mass_kg": entry.bone_mass_kg,
+        "water_pct": entry.water_pct,
+        "bmr_kcal": entry.bmr_kcal,
+        "metabolic_age": entry.metabolic_age,
+        "visceral_fat": entry.visceral_fat,
+        "impedance": entry.impedance,
+        "source": entry.source,
+        "raw": {
+            "timestamp": entry.timestamp.isoformat(),
+        },
     }

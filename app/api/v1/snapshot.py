@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.db import SessionLocal, engine
+from app.core.merge import merge_for_date
 from app.models.snapshot import SeraDailySnapshot
 
 router = APIRouter(tags=["snapshot"])
@@ -33,6 +34,7 @@ def kg_to_lb(kg: float | None) -> float | None:
     return round(kg * 2.20462, 1)
 
 
+
 @router.get("/snapshot/latest", response_model=SnapshotOut)
 def get_latest_snapshot():
     if not engine or not SessionLocal:
@@ -47,6 +49,51 @@ def get_latest_snapshot():
         )
         if not snap:
             raise HTTPException(404, "No snapshot available")
+
+        # Re-run merge_for_date to ensure WHOOP + body metrics are up-to-date for that day
+        merged = merge_for_date(db, snap.date) or snap
+        db.commit()
+        db.refresh(merged)
+
+        return SnapshotOut(
+            date=merged.date.isoformat(),
+            weight_lb=kg_to_lb(merged.weight_kg),
+            bodyfat_pct=merged.bodyfat_pct,
+            hrv_ms=merged.hrv_ms,
+            rhr_bpm=merged.rhr_bpm,
+            sleep_hours=merged.sleep_hours,
+            sleep_efficiency_pct=merged.sleep_efficiency_pct,
+            deep_sleep_pct=merged.deep_sleep_pct,
+            rem_sleep_pct=merged.rem_sleep_pct,
+            hydration_pct=merged.hydration_pct,
+            recovery_score=merged.recovery_score,
+            strain=merged.strain,
+            respiratory_rate=merged.respiratory_rate,
+            spo2_pct=merged.spo2_pct,
+        )
+    finally:
+        db.close()
+
+
+# New endpoint: get snapshot by date with merge_for_date
+@router.get("/snapshot/daily/{date}", response_model=SnapshotOut)
+def get_snapshot_by_date(date: str):
+    if not engine or not SessionLocal:
+        raise HTTPException(503, "DB not configured")
+
+    try:
+        d = DateType.fromisoformat(date)
+    except ValueError:
+        raise HTTPException(400, f"Invalid date format: {date}, expected YYYY-MM-DD")
+
+    db: Session = SessionLocal()
+    try:
+        snap = merge_for_date(db, d)
+        if not snap:
+            raise HTTPException(404, f"No data available to build snapshot for {date}")
+
+        db.commit()
+        db.refresh(snap)
 
         return SnapshotOut(
             date=snap.date.isoformat(),

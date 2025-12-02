@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, Float, String, DateTime
-from app.db.base import Base
+from app.core.db import Base 
 
 class RenphoWeightEntry(Base):
     __tablename__ = "renpho_weight_entries"

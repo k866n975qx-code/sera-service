@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from app.core.db import Base
+from app.db import get_db
 from app.models.renpho import RenphoMeasurement
 from datetime import datetime
 from typing import List, Optional

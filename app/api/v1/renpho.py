@@ -1,13 +1,20 @@
-
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from app.db import get_db
-from app.models.renpho import RenphoMeasurement
 from datetime import datetime
 from typing import List, Optional
 
-router = APIRouter(prefix="/v1/renpho", tags=["Renpho"])
+from app.core.db import SessionLocal
+from app.models.renpho import RenphoWeightEntry
+
+router = APIRouter(prefix="/v1/renpho", tags=["renpho"])
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 # ---- Helpers ----
 

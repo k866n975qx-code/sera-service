@@ -8,6 +8,7 @@ from sqlalchemy import (
     String,
     JSON,
     UniqueConstraint,
+    ForeignKey,
 )
 from sqlalchemy.orm import relationship
 

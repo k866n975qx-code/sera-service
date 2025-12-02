@@ -6,7 +6,7 @@ from typing import List, Optional
 from app.core.db import SessionLocal
 from app.models.renpho import RenphoWeightEntry
 
-router = APIRouter(prefix="/v1/renpho", tags=["renpho"])
+router = APIRouter(prefix="/renpho", tags=["renpho"])
 
 
 def get_db():

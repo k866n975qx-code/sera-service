@@ -7,12 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.models.whoop import WhoopDaily
 from app.models.snapshot import SeraDailySnapshot
-from app.models.renpho import RenphoWeightEntry
+from app.models.body_metrics import BodyMetricsEntry
 
 
 class Source(str, Enum):
     WHOOP = "whoop"
-    RENPHO = "renpho"
+    BODY = "body"
 
 
 # canonical metrics in SeraDailySnapshot
@@ -33,7 +33,7 @@ _METRICS = [
 ]
 
 # WHOOP is primary for most metrics.
-# Renpho is primary source for scale-related metrics; WHOOP is fallback if present.
+# Body metrics (scale) are primary for weight/bodyfat/hydration; WHOOP is fallback if present.
 METRIC_SOURCE_PRIORITY = {
     "hrv_ms": [Source.WHOOP],
     "rhr_bpm": [Source.WHOOP],
@@ -46,40 +46,40 @@ METRIC_SOURCE_PRIORITY = {
     "respiratory_rate": [Source.WHOOP],
     "spo2_pct": [Source.WHOOP],
     # Scale-related metrics
-    "weight_kg": [Source.RENPHO, Source.WHOOP],
-    "bodyfat_pct": [Source.RENPHO, Source.WHOOP],
-    "hydration_pct": [Source.RENPHO, Source.WHOOP],
+    "weight_kg": [Source.BODY, Source.WHOOP],
+    "bodyfat_pct": [Source.BODY, Source.WHOOP],
+    "hydration_pct": [Source.BODY, Source.WHOOP],
 }
 
 
 def _get_value(
     src: Source,
     metric: str,
-    renpho: Optional[RenphoWeightEntry],
+    body: Optional[BodyMetricsEntry],
     whoop: Optional[WhoopDaily],
 ):
     if src is Source.WHOOP:
         return getattr(whoop, metric, None) if whoop is not None else None
 
-    if src is Source.RENPHO and renpho is not None:
-        # Map snapshot metrics to RenphoWeightEntry fields
+    if src is Source.BODY and body is not None:
+        # Map snapshot metrics to BodyMetricsEntry fields
         if metric == "weight_kg":
-            return renpho.weight_kg
+            return body.weight_kg
         if metric == "bodyfat_pct":
-            return renpho.body_fat_pct
+            return body.body_fat_pct
         if metric == "hydration_pct":
-            return renpho.water_pct
+            return body.body_water_pct
 
     return None
 
 
 def choose_metric(
     metric: str,
-    renpho: Optional[RenphoWeightEntry],
+    body: Optional[BodyMetricsEntry],
     whoop: Optional[WhoopDaily],
 ):
     for src in METRIC_SOURCE_PRIORITY.get(metric, []):
-        value = _get_value(src, metric, renpho, whoop)
+        value = _get_value(src, metric, body, whoop)
         if value is not None:
             return value
     return None
@@ -87,9 +87,10 @@ def choose_metric(
 
 def merge_for_date(db: Session, d: date) -> Optional[SeraDailySnapshot]:
     """
-    Merge WHOOP + Renpho into SeraDailySnapshot for date d.
+    Merge WHOOP + body metrics into SeraDailySnapshot for date d.
 
-    WHOOP is preferred for most metrics, Renpho is preferred for scale metrics.
+    WHOOP is preferred for readiness/sleep/strain metrics.
+    Body metrics are preferred for scale-related metrics (weight, fat %, hydration).
     """
     # WHOOP daily summary row
     whoop = (
@@ -98,18 +99,18 @@ def merge_for_date(db: Session, d: date) -> Optional[SeraDailySnapshot]:
         .one_or_none()
     )
 
-    # Renpho: pick the latest measurement on that date, if any
-    renpho = (
-        db.query(RenphoWeightEntry)
-        .filter(func.date(RenphoWeightEntry.timestamp) == d)
-        .order_by(RenphoWeightEntry.timestamp.desc())
+    # Body metrics: pick the latest measurement on that date, if any
+    body = (
+        db.query(BodyMetricsEntry)
+        .filter(BodyMetricsEntry.date == d)
+        .order_by(BodyMetricsEntry.timestamp.desc())
         .first()
     )
 
-    if renpho is None and whoop is None:
+    if body is None and whoop is None:
         return None
 
-    values = {metric: choose_metric(metric, renpho, whoop) for metric in _METRICS}
+    values = {metric: choose_metric(metric, body, whoop) for metric in _METRICS}
 
     snapshot = (
         db.query(SeraDailySnapshot)
@@ -131,7 +132,7 @@ def merge_for_date(db: Session, d: date) -> Optional[SeraDailySnapshot]:
     snapshot.bodyfat_pct = values["bodyfat_pct"]
     snapshot.hydration_pct = values["hydration_pct"]
     snapshot.recovery_score = values["recovery_score"]
-    snapshot.strain = values["strain"]  
+    snapshot.strain = values["strain"]
     snapshot.respiratory_rate = values["respiratory_rate"]
     snapshot.spo2_pct = values["spo2_pct"]
 

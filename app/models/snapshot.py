@@ -7,7 +7,6 @@ from sqlalchemy import (
     DateTime,
     String,
     JSON,
-    ForeignKey,
     UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
@@ -43,10 +42,7 @@ class SeraDailySnapshot(Base):
     flags = Column(JSON)
     insight = Column(String(512))
 
-    apple_health_id = Column(Integer, ForeignKey("apple_health_daily.id"))
     whoop_id = Column(Integer, ForeignKey("whoop_daily.id"))
-
-    apple_health = relationship("AppleHealthDaily")
     whoop = relationship("WhoopDaily")
 
     created_at = Column(DateTime, default=datetime.utcnow)

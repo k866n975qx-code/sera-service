@@ -2,16 +2,17 @@ from datetime import date
 from enum import Enum
 from typing import Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.apple import AppleHealthDaily
 from app.models.whoop import WhoopDaily
 from app.models.snapshot import SeraDailySnapshot
+from app.models.renpho import RenphoWeightEntry
 
 
 class Source(str, Enum):
     WHOOP = "whoop"
-    APPLE = "apple"
+    RENPHO = "renpho"
 
 
 # canonical metrics in SeraDailySnapshot
@@ -31,31 +32,54 @@ _METRICS = [
     "spo2_pct",
 ]
 
-# WHOOP is primary source for ALL metrics, Apple is fallback
+# WHOOP is primary for most metrics.
+# Renpho is primary source for scale-related metrics; WHOOP is fallback if present.
 METRIC_SOURCE_PRIORITY = {
-    metric: [Source.WHOOP, Source.APPLE] for metric in _METRICS
+    "hrv_ms": [Source.WHOOP],
+    "rhr_bpm": [Source.WHOOP],
+    "sleep_hours": [Source.WHOOP],
+    "sleep_efficiency_pct": [Source.WHOOP],
+    "deep_sleep_pct": [Source.WHOOP],
+    "rem_sleep_pct": [Source.WHOOP],
+    "recovery_score": [Source.WHOOP],
+    "strain": [Source.WHOOP],
+    "respiratory_rate": [Source.WHOOP],
+    "spo2_pct": [Source.WHOOP],
+    # Scale-related metrics
+    "weight_kg": [Source.RENPHO, Source.WHOOP],
+    "bodyfat_pct": [Source.RENPHO, Source.WHOOP],
+    "hydration_pct": [Source.RENPHO, Source.WHOOP],
 }
 
 
 def _get_value(
     src: Source,
     metric: str,
-    apple: Optional[AppleHealthDaily],
+    renpho: Optional[RenphoWeightEntry],
     whoop: Optional[WhoopDaily],
 ):
     if src is Source.WHOOP:
         return getattr(whoop, metric, None) if whoop is not None else None
-    else:
-        return getattr(apple, metric, None) if apple is not None else None
+
+    if src is Source.RENPHO and renpho is not None:
+        # Map snapshot metrics to RenphoWeightEntry fields
+        if metric == "weight_kg":
+            return renpho.weight_kg
+        if metric == "bodyfat_pct":
+            return renpho.body_fat_pct
+        if metric == "hydration_pct":
+            return renpho.water_pct
+
+    return None
 
 
 def choose_metric(
     metric: str,
-    apple: Optional[AppleHealthDaily],
+    renpho: Optional[RenphoWeightEntry],
     whoop: Optional[WhoopDaily],
 ):
     for src in METRIC_SOURCE_PRIORITY.get(metric, []):
-        value = _get_value(src, metric, apple, whoop)
+        value = _get_value(src, metric, renpho, whoop)
         if value is not None:
             return value
     return None
@@ -63,25 +87,29 @@ def choose_metric(
 
 def merge_for_date(db: Session, d: date) -> Optional[SeraDailySnapshot]:
     """
-    Merge Apple + WHOOP into SeraDailySnapshot for date d.
+    Merge WHOOP + Renpho into SeraDailySnapshot for date d.
 
-    WHOOP is always preferred when it has a value; Apple is fallback.
+    WHOOP is preferred for most metrics, Renpho is preferred for scale metrics.
     """
-    apple = (
-        db.query(AppleHealthDaily)
-        .filter(AppleHealthDaily.date == d)
-        .one_or_none()
-    )
+    # WHOOP daily summary row
     whoop = (
         db.query(WhoopDaily)
         .filter(WhoopDaily.date == d)
         .one_or_none()
     )
 
-    if apple is None and whoop is None:
+    # Renpho: pick the latest measurement on that date, if any
+    renpho = (
+        db.query(RenphoWeightEntry)
+        .filter(func.date(RenphoWeightEntry.timestamp) == d)
+        .order_by(RenphoWeightEntry.timestamp.desc())
+        .first()
+    )
+
+    if renpho is None and whoop is None:
         return None
 
-    values = {metric: choose_metric(metric, apple, whoop) for metric in _METRICS}
+    values = {metric: choose_metric(metric, renpho, whoop) for metric in _METRICS}
 
     snapshot = (
         db.query(SeraDailySnapshot)
@@ -103,11 +131,14 @@ def merge_for_date(db: Session, d: date) -> Optional[SeraDailySnapshot]:
     snapshot.bodyfat_pct = values["bodyfat_pct"]
     snapshot.hydration_pct = values["hydration_pct"]
     snapshot.recovery_score = values["recovery_score"]
-    snapshot.strain = values["strain"]
+    snapshot.strain = values["strain"]  
     snapshot.respiratory_rate = values["respiratory_rate"]
     snapshot.spo2_pct = values["spo2_pct"]
 
-    snapshot.apple_health_id = apple.id if apple else None
+    # We no longer track Apple Health at all; clear any legacy linkage if present.
+    if hasattr(snapshot, "apple_health_id"):
+        snapshot.apple_health_id = None
+
     snapshot.whoop_id = whoop.id if whoop else None
 
     # readiness fields stay None for now

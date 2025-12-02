@@ -236,6 +236,10 @@ def import_whoop_daily(date: str):
         sleep_hours: float | None = None
         sleep_status: int | None = None
         sleep_raw: Any | None = None
+        # enriched sleep metrics (main sleep only, not naps)
+        sleep_efficiency_pct: float | None = None
+        deep_sleep_min: float | None = None
+        rem_sleep_min: float | None = None
 
         sleep_url = f"{settings.WHOOP_API_BASE}/developer/v2/activity/sleep"
         with httpx.Client(timeout=10.0) as client:
@@ -262,7 +266,12 @@ def import_whoop_daily(date: str):
                 else []
             )
 
-            total_in_bed_ms = 0.0
+            # we will pick the "main" sleep as the one with the largest actual sleep time
+            best_sleep_ms = 0.0
+            best_deep_ms = 0.0
+            best_rem_ms = 0.0
+            best_sleep_efficiency = None
+
             if sleep_records:
                 for srec in sleep_records:
                     if not isinstance(srec, dict):
@@ -274,9 +283,23 @@ def import_whoop_daily(date: str):
                     if not isinstance(stage_summary, dict):
                         continue
 
-                    ms_val = stage_summary.get("total_in_bed_time_milli")
-                    if isinstance(ms_val, (int, float)):
-                        total_in_bed_ms += ms_val
+                    light_ms = stage_summary.get("total_light_sleep_time_milli") or 0
+                    slow_ms = stage_summary.get("total_slow_wave_sleep_time_milli") or 0
+                    rem_ms = stage_summary.get("total_rem_sleep_time_milli") or 0
+                    # actual sleep time excludes awake & no-data
+                    sleep_ms = 0.0
+                    for v in (light_ms, slow_ms, rem_ms):
+                        if isinstance(v, (int, float)):
+                            sleep_ms += float(v)
+
+                    # track the single longest sleep as "main sleep"
+                    if sleep_ms > best_sleep_ms:
+                        best_sleep_ms = sleep_ms
+                        best_deep_ms = slow_ms if isinstance(slow_ms, (int, float)) else 0.0
+                        best_rem_ms = rem_ms if isinstance(rem_ms, (int, float)) else 0.0
+                        eff_val = score_block.get("sleep_efficiency_percentage")
+                        if isinstance(eff_val, (int, float)):
+                            best_sleep_efficiency = float(eff_val)
 
                     # upsert into WhoopSleepActivity
                     sleep_id = srec.get("id")
@@ -343,8 +366,13 @@ def import_whoop_daily(date: str):
                     sleep_row.api_updated_at = _parse_iso8601(srec.get("updated_at"))
                     sleep_row.raw_payload = srec
 
-                if total_in_bed_ms > 0:
-                    sleep_hours = round(total_in_bed_ms / 1000.0 / 3600.0, 2)
+                if best_sleep_ms > 0:
+                    # convert to hours and minutes for downstream use
+                    sleep_hours = round(best_sleep_ms / 1000.0 / 3600.0, 2)
+                    deep_sleep_min = round(best_deep_ms / 1000.0 / 60.0, 1)
+                    rem_sleep_min = round(best_rem_ms / 1000.0 / 60.0, 1)
+                    if best_sleep_efficiency is not None:
+                        sleep_efficiency_pct = best_sleep_efficiency
         else:
             try:
                 sleep_raw = sleep_resp.json()
@@ -618,6 +646,12 @@ def import_whoop_daily(date: str):
                 existing.spo2_pct = spo2_pct
             if sleep_hours is not None:
                 existing.sleep_hours = sleep_hours
+            if sleep_efficiency_pct is not None:
+                existing.sleep_efficiency_pct = sleep_efficiency_pct
+            if deep_sleep_min is not None:
+                existing.deep_sleep_min = deep_sleep_min
+            if rem_sleep_min is not None:
+                existing.rem_sleep_min = rem_sleep_min
             if strain is not None:
                 existing.strain = strain
         else:
@@ -629,6 +663,9 @@ def import_whoop_daily(date: str):
                 respiratory_rate=respiratory_rate,
                 spo2_pct=spo2_pct,
                 sleep_hours=sleep_hours,
+                sleep_efficiency_pct=sleep_efficiency_pct,
+                deep_sleep_min=deep_sleep_min,
+                rem_sleep_min=rem_sleep_min,
                 strain=strain,
             )
             db.add(row)

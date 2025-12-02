@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     WHOOP_API_BASE: str = "https://api.prod.whoop.com"
 
     # Path to MyWhoop auto-refreshing token
-    WHOOP_CREDENTIALS_PATH = "/home/jose/mywhoop/credentials.json"
+    WHOOP_CREDENTIALS_PATH: str = "/home/jose/mywhoop/credentials.json"
 
 
 settings = Settings()

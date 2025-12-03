@@ -1,0 +1,392 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SERA",
+    "version": "1.0.0",
+    "description": "Sera: daily health snapshot service that merges body metrics and WHOOP data."
+  },
+  "servers": [
+    {
+      "url": "https://sera.joseai.dev",
+      "description": "Sera production"
+    }
+  ],
+  "paths": {
+    "/v1/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Health check",
+        "responses": {
+          "200": {
+            "description": "Service status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string" },
+                    "environment": { "type": "string" },
+                    "db": { "type": "boolean" }
+                  },
+                  "required": ["status"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/whoop/import/daily": {
+      "get": {
+        "operationId": "importWhoopDaily",
+        "summary": "Import WHOOP data for a day",
+        "description": "Pull WHOOP recovery, sleep, cycle and workouts for the given date (or today) and update the daily snapshot.",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "description": "Date in YYYY-MM-DD. If omitted, uses today.",
+            "schema": { "type": "string", "format": "date" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Import completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string" },
+                    "date": { "type": "string", "format": "date" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/snapshot/latest": {
+      "get": {
+        "operationId": "getLatestSnapshot",
+        "summary": "Get latest merged snapshot",
+        "responses": {
+          "200": {
+            "description": "Latest snapshot",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Snapshot" }
+              }
+            }
+          },
+          "404": { "description": "No snapshot available" }
+        }
+      }
+    },
+    "/v1/snapshot/daily/{date}": {
+      "get": {
+        "operationId": "getSnapshotByDate",
+        "summary": "Get snapshot for a specific date",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "path",
+            "required": true,
+            "description": "Date in YYYY-MM-DD.",
+            "schema": { "type": "string", "format": "date" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Snapshot for that date",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Snapshot" }
+              }
+            }
+          },
+          "404": { "description": "No snapshot for that date" }
+        }
+      }
+    },
+    "/v1/readiness/latest": {
+      "get": {
+        "operationId": "getLatestReadiness",
+        "summary": "Get latest readiness summary",
+        "responses": {
+          "200": {
+            "description": "Latest readiness summary",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Readiness" }
+              }
+            }
+          },
+          "404": { "description": "No snapshot available" }
+        }
+      }
+    },
+    "/v1/readiness/by-date/{date}": {
+      "get": {
+        "operationId": "getReadinessByDate",
+        "summary": "Get readiness for a specific date",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "path",
+            "required": true,
+            "description": "Date in YYYY-MM-DD.",
+            "schema": { "type": "string", "format": "date" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Readiness for that date",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Readiness" }
+              }
+            }
+          },
+          "404": { "description": "No snapshot for that date" }
+        }
+      }
+    },
+    "/v1/body-metrics/ingest": {
+      "post": {
+        "operationId": "ingestBodyMetrics",
+        "summary": "Ingest body metrics (manual/device)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/BodyMetricsBatch" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rows inserted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string" },
+                    "created": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/body-metrics/ingest/screenshot": {
+      "post": {
+        "operationId": "ingestBodyMetricsScreenshot",
+        "summary": "Ingest body metrics from screenshot/OCR",
+        "description": "Ingest one or more measurements derived from screenshot/OCR. All rows are stored with source='screenshot'.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/BodyMetricsBatch" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rows inserted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string" },
+                    "created": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/body-metrics/dates": {
+      "get": {
+        "operationId": "listBodyMetricDates",
+        "summary": "List dates with body metrics",
+        "responses": {
+          "200": {
+            "description": "Dates with at least one entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string" },
+                    "dates": {
+                      "type": "array",
+                      "items": { "type": "string", "format": "date" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/body-metrics/daily/{date}": {
+      "get": {
+        "operationId": "getBodyMetricsByDate",
+        "summary": "Get latest body metrics for a date",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "path",
+            "required": true,
+            "description": "Date in YYYY-MM-DD.",
+            "schema": { "type": "string", "format": "date" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Body metrics for that date (if present)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string" },
+                    "date": { "type": "string", "format": "date" },
+                    "found": { "type": "boolean" },
+                    "weight_kg": { "type": ["number", "null"] },
+                    "weight_lb": { "type": ["number", "null"] },
+                    "bmi": { "type": ["number", "null"] },
+                    "body_fat_pct": { "type": ["number", "null"] },
+                    "body_fat_mass_kg": { "type": ["number", "null"] },
+                    "body_fat_mass_lb": { "type": ["number", "null"] },
+                    "subcutaneous_fat_pct": { "type": ["number", "null"] },
+                    "visceral_fat": { "type": ["number", "null"] },
+                    "body_water_pct": { "type": ["number", "null"] },
+                    "muscle_mass_kg": { "type": ["number", "null"] },
+                    "muscle_mass_lb": { "type": ["number", "null"] },
+                    "skeletal_muscle_kg": { "type": ["number", "null"] },
+                    "skeletal_muscle_lb": { "type": ["number", "null"] },
+                    "bone_mass_kg": { "type": ["number", "null"] },
+                    "bone_mass_lb": { "type": ["number", "null"] },
+                    "fat_free_mass_kg": { "type": ["number", "null"] },
+                    "fat_free_mass_lb": { "type": ["number", "null"] },
+                    "protein_pct": { "type": ["number", "null"] },
+                    "protein_kg": { "type": ["number", "null"] },
+                    "bmr_kcal": { "type": ["number", "null"] },
+                    "metabolic_age": { "type": ["integer", "null"] },
+                    "body_type": { "type": ["string", "null"] },
+                    "source": { "type": ["string", "null"] }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Snapshot": {
+        "type": "object",
+        "properties": {
+          "date": { "type": "string", "format": "date" },
+          "weight_lb": { "type": ["number", "null"] },
+          "bodyfat_pct": { "type": ["number", "null"] },
+          "hrv_ms": { "type": ["number", "null"] },
+          "rhr_bpm": { "type": ["number", "null"] },
+          "sleep_hours": { "type": ["number", "null"] },
+          "sleep_efficiency_pct": { "type": ["number", "null"] },
+          "deep_sleep_pct": { "type": ["number", "null"] },
+          "rem_sleep_pct": { "type": ["number", "null"] },
+          "sleep_consistency_pct": { "type": ["number", "null"] },
+          "sleep_disturbance_count": { "type": ["integer", "null"] },
+          "hydration_pct": { "type": ["number", "null"] },
+          "recovery_score": { "type": ["integer", "null"] },
+          "strain": { "type": ["number", "null"] },
+          "respiratory_rate": { "type": ["number", "null"] },
+          "spo2_pct": { "type": ["number", "null"] }
+        },
+        "required": ["date"]
+      },
+      "BodyMetricsMeasurement": {
+        "type": "object",
+        "properties": {
+          "timestamp": { "type": "string", "format": "date-time" },
+          "weight_kg": { "type": ["number", "null"] },
+          "weight_lb": { "type": ["number", "null"] },
+          "bmi": { "type": ["number", "null"] },
+          "body_fat_pct": { "type": ["number", "null"] },
+          "body_fat_mass_kg": { "type": ["number", "null"] },
+          "body_fat_mass_lb": { "type": ["number", "null"] },
+          "subcutaneous_fat_pct": { "type": ["number", "null"] },
+          "visceral_fat": { "type": ["number", "null"] },
+          "body_water_pct": { "type": ["number", "null"] },
+          "muscle_mass_kg": { "type": ["number", "null"] },
+          "muscle_mass_lb": { "type": ["number", "null"] },
+          "skeletal_muscle_kg": { "type": ["number", "null"] },
+          "skeletal_muscle_lb": { "type": ["number", "null"] },
+          "bone_mass_kg": { "type": ["number", "null"] },
+          "bone_mass_lb": { "type": ["number", "null"] },
+          "fat_free_mass_kg": { "type": ["number", "null"] },
+          "fat_free_mass_lb": { "type": ["number", "null"] },
+          "protein_pct": { "type": ["number", "null"] },
+          "protein_kg": { "type": ["number", "null"] },
+          "bmr_kcal": { "type": ["number", "null"] },
+          "metabolic_age": { "type": ["integer", "null"] },
+          "body_type": { "type": ["string", "null"] },
+          "source": { "type": ["string", "null"] }
+        },
+        "required": ["timestamp"]
+      },
+      "BodyMetricsBatch": {
+        "type": "object",
+        "properties": {
+          "measurements": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BodyMetricsMeasurement" }
+          }
+        },
+        "required": ["measurements"]
+      },
+      "Readiness": {
+        "type": "object",
+        "properties": {
+          "date": { "type": "string", "format": "date" },
+          "readiness_index": { "type": ["number", "null"] },
+          "readiness_zone": {
+            "type": ["string", "null"],
+            "description": "red, yellow, or green"
+          },
+          "flags": { "type": ["object", "null"], "additionalProperties": true },
+          "hrv_trend_pct": { "type": ["number", "null"] },
+          "sleep_trend_pct": { "type": ["number", "null"] },
+          "sleep_hours": { "type": ["number", "null"] },
+          "recovery_score": { "type": ["integer", "null"] },
+          "strain": { "type": ["number", "null"] },
+          "hrv_7d_avg": { "type": ["number", "null"] },
+          "sleep_7d_avg": { "type": ["number", "null"] },
+          "strain_7d_avg": { "type": ["number", "null"] },
+          "recovery_7d_avg": { "type": ["number", "null"] },
+          "hrv_signal_score": { "type": ["integer", "null"] },
+          "sleep_signal_score": { "type": ["integer", "null"] },
+          "recovery_signal_score": { "type": ["integer", "null"] },
+          "sleep_debt_hours": { "type": ["number", "null"] },
+          "health_snapshot": { "type": ["string", "null"] }
+        },
+        "required": ["date"]
+      }
+    }
+  }
+}

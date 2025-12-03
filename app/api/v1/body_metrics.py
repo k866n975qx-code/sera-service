@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, root_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -65,6 +65,17 @@ class BodyMetricsIn(BaseModel):
     body_type: str | None = None
     source: str | None = "manual"
 
+    @root_validator
+    def validate_weight_positive(cls, values):
+        weight_kg = values.get("weight_kg")
+        weight_lb = values.get("weight_lb")
+        # Only enforce positivity if a weight value is actually provided
+        if weight_kg is not None and weight_kg <= 0:
+            raise ValueError("weight_kg must be greater than 0 when provided")
+        if weight_lb is not None and weight_lb <= 0:
+            raise ValueError("weight_lb must be greater than 0 when provided")
+        return values
+
 
 class BodyMetricsBatchIn(BaseModel):
     measurements: list[BodyMetricsIn]
@@ -106,6 +117,49 @@ def ingest_body_metrics(payload: BodyMetricsBatchIn, db: Session = Depends(get_d
             metabolic_age=m.metabolic_age,
             body_type=m.body_type,
             source=m.source or "manual",
+        )
+        db.add(entry)
+        created += 1
+
+    db.commit()
+    return {"status": "ok", "created": created}
+
+
+@router.post("/ingest/screenshot")
+def ingest_body_metrics_screenshot(payload: BodyMetricsBatchIn, db: Session = Depends(get_db)):
+    """
+    Insert one or more body-metric measurements that originated from screenshot/OCR.
+    All entries will be stored with source='screenshot', regardless of payload source value.
+    """
+    created = 0
+    for m in payload.measurements:
+        dt = m.timestamp
+        entry = BodyMetricsEntry(
+            timestamp=dt,
+            date=dt.date(),
+            weight_kg=m.weight_kg,
+            weight_lb=m.weight_lb,
+            bmi=m.bmi,
+            body_fat_pct=m.body_fat_pct,
+            body_fat_mass_kg=m.body_fat_mass_kg,
+            body_fat_mass_lb=m.body_fat_mass_lb,
+            subcutaneous_fat_pct=m.subcutaneous_fat_pct,
+            visceral_fat=m.visceral_fat,
+            body_water_pct=m.body_water_pct,
+            muscle_mass_kg=m.muscle_mass_kg,
+            muscle_mass_lb=m.muscle_mass_lb,
+            skeletal_muscle_kg=m.skeletal_muscle_kg,
+            skeletal_muscle_lb=m.skeletal_muscle_lb,
+            bone_mass_kg=m.bone_mass_kg,
+            bone_mass_lb=m.bone_mass_lb,
+            fat_free_mass_kg=m.fat_free_mass_kg,
+            fat_free_mass_lb=m.fat_free_mass_lb,
+            protein_pct=m.protein_pct,
+            protein_kg=m.protein_kg,
+            bmr_kcal=m.bmr_kcal,
+            metabolic_age=m.metabolic_age,
+            body_type=m.body_type,
+            source="screenshot",
         )
         db.add(entry)
         created += 1

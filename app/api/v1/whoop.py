@@ -240,6 +240,17 @@ def import_whoop_daily(date: str):
         sleep_efficiency_pct: float | None = None
         deep_sleep_min: float | None = None
         rem_sleep_min: float | None = None
+        # new daily sleep summary metrics and aggregation helpers
+        sleep_consistency_pct: float | None = None
+        sleep_disturbance_count: int | None = None
+        # aggregation helpers across all sleep records
+        rr_sum = 0.0
+        rr_count = 0
+        consistency_sum = 0.0
+        consistency_count = 0
+        disturbance_total = 0
+        best_sleep_consistency = None
+        best_disturbance_count = None
 
         sleep_url = f"{settings.WHOOP_API_BASE}/developer/v2/activity/sleep"
         with httpx.Client(timeout=10.0) as client:
@@ -283,6 +294,19 @@ def import_whoop_daily(date: str):
                     if not isinstance(stage_summary, dict):
                         continue
 
+                    # aggregate metrics across all sleeps
+                    rr_val = score_block.get("respiratory_rate")
+                    if isinstance(rr_val, (int, float)):
+                        rr_sum += float(rr_val)
+                        rr_count += 1
+                    cons_val = score_block.get("sleep_consistency_percentage")
+                    if isinstance(cons_val, (int, float)):
+                        consistency_sum += float(cons_val)
+                        consistency_count += 1
+                    dist_val = stage_summary.get("disturbance_count")
+                    if isinstance(dist_val, (int, float, int)):
+                        disturbance_total += int(dist_val)
+
                     light_ms = stage_summary.get("total_light_sleep_time_milli") or 0
                     slow_ms = stage_summary.get("total_slow_wave_sleep_time_milli") or 0
                     rem_ms = stage_summary.get("total_rem_sleep_time_milli") or 0
@@ -300,6 +324,12 @@ def import_whoop_daily(date: str):
                         eff_val = score_block.get("sleep_efficiency_percentage")
                         if isinstance(eff_val, (int, float)):
                             best_sleep_efficiency = float(eff_val)
+                        cons_best = score_block.get("sleep_consistency_percentage")
+                        if isinstance(cons_best, (int, float)):
+                            best_sleep_consistency = float(cons_best)
+                        dist_best = stage_summary.get("disturbance_count")
+                        if isinstance(dist_best, (int, float, int)):
+                            best_disturbance_count = int(dist_best)
 
                     # upsert into WhoopSleepActivity
                     sleep_id = srec.get("id")
@@ -373,6 +403,18 @@ def import_whoop_daily(date: str):
                     rem_sleep_min = round(best_rem_ms / 1000.0 / 60.0, 1)
                     if best_sleep_efficiency is not None:
                         sleep_efficiency_pct = best_sleep_efficiency
+                    if best_sleep_consistency is not None:
+                        sleep_consistency_pct = best_sleep_consistency
+                    if best_disturbance_count is not None:
+                        sleep_disturbance_count = best_disturbance_count
+
+                # fall back to aggregated values across all sleeps if needed
+                if rr_count > 0:
+                    respiratory_rate = rr_sum / rr_count
+                if consistency_count > 0 and sleep_consistency_pct is None:
+                    sleep_consistency_pct = consistency_sum / consistency_count
+                if disturbance_total > 0 and sleep_disturbance_count is None:
+                    sleep_disturbance_count = disturbance_total
         else:
             try:
                 sleep_raw = sleep_resp.json()
@@ -483,6 +525,7 @@ def import_whoop_daily(date: str):
         workout_url = f"{settings.WHOOP_API_BASE}/developer/v2/activity/workout"
         workout_status: int | None = None
         workout_raw: Any | None = None
+        max_workout_strain: float | None = None
 
         with httpx.Client(timeout=10.0) as client:
             workout_resp = client.get(
@@ -541,7 +584,12 @@ def import_whoop_daily(date: str):
                         score_block = {}
 
                     s_val = score_block.get("strain")
-                    workout_row.strain = float(s_val) if isinstance(s_val, (int, float)) else None
+                    if isinstance(s_val, (int, float)):
+                        workout_row.strain = float(s_val)
+                        if max_workout_strain is None or float(s_val) > max_workout_strain:
+                            max_workout_strain = float(s_val)
+                    else:
+                        workout_row.strain = None
 
                     ah = score_block.get("average_heart_rate")
                     workout_row.average_heart_rate = (
@@ -571,6 +619,8 @@ def import_whoop_daily(date: str):
                     workout_row.api_created_at = _parse_iso8601(wrec.get("created_at"))
                     workout_row.api_updated_at = _parse_iso8601(wrec.get("updated_at"))
                     workout_row.raw_payload = wrec
+            if strain is None and max_workout_strain is not None:
+                strain = max_workout_strain
         else:
             try:
                 workout_raw = workout_resp.json()
@@ -648,6 +698,10 @@ def import_whoop_daily(date: str):
                 existing.sleep_hours = sleep_hours
             if sleep_efficiency_pct is not None:
                 existing.sleep_efficiency_pct = sleep_efficiency_pct
+            if sleep_consistency_pct is not None:
+                existing.sleep_consistency_pct = sleep_consistency_pct
+            if sleep_disturbance_count is not None:
+                existing.sleep_disturbance_count = sleep_disturbance_count
             if deep_sleep_min is not None:
                 existing.deep_sleep_min = deep_sleep_min
             if rem_sleep_min is not None:
@@ -666,6 +720,8 @@ def import_whoop_daily(date: str):
                 sleep_efficiency_pct=sleep_efficiency_pct,
                 deep_sleep_min=deep_sleep_min,
                 rem_sleep_min=rem_sleep_min,
+                sleep_consistency_pct=sleep_consistency_pct,
+                sleep_disturbance_count=sleep_disturbance_count,
                 strain=strain,
             )
             db.add(row)

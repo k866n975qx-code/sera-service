@@ -19,6 +19,8 @@ class WhoopDaily(Base):
     sleep_efficiency_pct = Column(Float)
     deep_sleep_min = Column(Float)
     rem_sleep_min = Column(Float)
+    sleep_consistency_pct = Column(Float)
+    sleep_disturbance_count = Column(Integer)
 
     strain = Column(Float)
     avg_hr_day = Column(Float)

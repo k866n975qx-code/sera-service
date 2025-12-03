@@ -23,7 +23,10 @@ _METRICS = [
     "sleep_efficiency_pct",
     "deep_sleep_pct",
     "rem_sleep_pct",
+    "sleep_consistency_pct",
+    "sleep_disturbance_count",
     "weight_kg",
+    "weight_lb",
     "bodyfat_pct",
     "hydration_pct",
     "recovery_score",
@@ -41,12 +44,15 @@ METRIC_SOURCE_PRIORITY = {
     "sleep_efficiency_pct": [Source.WHOOP],
     "deep_sleep_pct": [Source.WHOOP],
     "rem_sleep_pct": [Source.WHOOP],
+    "sleep_consistency_pct": [Source.WHOOP],
+    "sleep_disturbance_count": [Source.WHOOP],
     "recovery_score": [Source.WHOOP],
     "strain": [Source.WHOOP],
     "respiratory_rate": [Source.WHOOP],
     "spo2_pct": [Source.WHOOP],
     # Scale-related metrics
     "weight_kg": [Source.BODY, Source.WHOOP],
+    "weight_lb": [Source.BODY, Source.WHOOP],
     "bodyfat_pct": [Source.BODY, Source.WHOOP],
     "hydration_pct": [Source.BODY, Source.WHOOP],
 }
@@ -59,12 +65,37 @@ def _get_value(
     whoop: Optional[WhoopDaily],
 ):
     if src is Source.WHOOP:
-        return getattr(whoop, metric, None) if whoop is not None else None
+        if whoop is None:
+            return None
+
+        # derive percentages from minutes + total sleep hours
+        if metric in ("deep_sleep_pct", "rem_sleep_pct"):
+            if whoop.sleep_hours and whoop.sleep_hours > 0:
+                total_min = whoop.sleep_hours * 60.0
+                if metric == "deep_sleep_pct" and getattr(whoop, "deep_sleep_min", None) is not None:
+                    return (whoop.deep_sleep_min / total_min) * 100.0
+                if metric == "rem_sleep_pct" and getattr(whoop, "rem_sleep_min", None) is not None:
+                    return (whoop.rem_sleep_min / total_min) * 100.0
+                return None
+
+        # derive weight_lb from any WHOOP-side weight_kg if present
+        if metric == "weight_lb":
+            kg = getattr(whoop, "weight_kg", None)
+            if kg is not None:
+                return kg * 2.20462
+
+        return getattr(whoop, metric, None)
 
     if src is Source.BODY and body is not None:
         # Map snapshot metrics to BodyMetricsEntry fields
         if metric == "weight_kg":
             return body.weight_kg
+        if metric == "weight_lb":
+            if getattr(body, "weight_lb", None) is not None:
+                return body.weight_lb
+            if body.weight_kg is not None:
+                return body.weight_kg * 2.20462
+            return None
         if metric == "bodyfat_pct":
             return body.body_fat_pct
         if metric == "hydration_pct":
@@ -128,7 +159,10 @@ def merge_for_date(db: Session, d: date) -> Optional[SeraDailySnapshot]:
     snapshot.sleep_efficiency_pct = values["sleep_efficiency_pct"]
     snapshot.deep_sleep_pct = values["deep_sleep_pct"]
     snapshot.rem_sleep_pct = values["rem_sleep_pct"]
+    snapshot.sleep_consistency_pct = values["sleep_consistency_pct"]
+    snapshot.sleep_disturbance_count = values["sleep_disturbance_count"]
     snapshot.weight_kg = values["weight_kg"]
+    snapshot.weight_lb = values["weight_lb"]
     snapshot.bodyfat_pct = values["bodyfat_pct"]
     snapshot.hydration_pct = values["hydration_pct"]
     snapshot.recovery_score = values["recovery_score"]

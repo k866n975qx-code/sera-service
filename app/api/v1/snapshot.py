@@ -21,6 +21,8 @@ class SnapshotOut(BaseModel):
     sleep_efficiency_pct: float | None
     deep_sleep_pct: float | None
     rem_sleep_pct: float | None
+    sleep_consistency_pct: float | None
+    sleep_disturbance_count: int | None
     hydration_pct: float | None
     recovery_score: int | None
     strain: float | None
@@ -32,6 +34,16 @@ def kg_to_lb(kg: float | None) -> float | None:
     if kg is None:
         return None
     return round(kg * 2.20462, 1)
+
+
+# Prefer the stored weight_lb on the snapshot; fall back to converting from kg if needed.
+def _resolve_weight_lb(snap: SeraDailySnapshot) -> float | None:
+    """
+    Prefer the stored weight_lb on the snapshot; fall back to converting from kg if needed.
+    """
+    if getattr(snap, "weight_lb", None) is not None:
+        return round(snap.weight_lb, 1)
+    return kg_to_lb(snap.weight_kg)
 
 
 
@@ -57,7 +69,7 @@ def get_latest_snapshot():
 
         return SnapshotOut(
             date=merged.date.isoformat(),
-            weight_lb=kg_to_lb(merged.weight_kg),
+            weight_lb=_resolve_weight_lb(merged),
             bodyfat_pct=merged.bodyfat_pct,
             hrv_ms=merged.hrv_ms,
             rhr_bpm=merged.rhr_bpm,
@@ -65,6 +77,8 @@ def get_latest_snapshot():
             sleep_efficiency_pct=merged.sleep_efficiency_pct,
             deep_sleep_pct=merged.deep_sleep_pct,
             rem_sleep_pct=merged.rem_sleep_pct,
+            sleep_consistency_pct=merged.sleep_consistency_pct,
+            sleep_disturbance_count=merged.sleep_disturbance_count,
             hydration_pct=merged.hydration_pct,
             recovery_score=merged.recovery_score,
             strain=merged.strain,
@@ -97,7 +111,7 @@ def get_snapshot_by_date(date: str):
 
         return SnapshotOut(
             date=snap.date.isoformat(),
-            weight_lb=kg_to_lb(snap.weight_kg),
+            weight_lb=_resolve_weight_lb(snap),
             bodyfat_pct=snap.bodyfat_pct,
             hrv_ms=snap.hrv_ms,
             rhr_bpm=snap.rhr_bpm,
@@ -105,6 +119,8 @@ def get_snapshot_by_date(date: str):
             sleep_efficiency_pct=snap.sleep_efficiency_pct,
             deep_sleep_pct=snap.deep_sleep_pct,
             rem_sleep_pct=snap.rem_sleep_pct,
+            sleep_consistency_pct=snap.sleep_consistency_pct,
+            sleep_disturbance_count=snap.sleep_disturbance_count,
             hydration_pct=snap.hydration_pct,
             recovery_score=snap.recovery_score,
             strain=snap.strain,
@@ -136,7 +152,7 @@ def _build_health_snapshot(
     hrv_trend_pct: float | None,
     sleep_trend_pct: float | None,
 ) -> str:
-    weight_lb = kg_to_lb(snap.weight_kg)
+    weight_lb = _resolve_weight_lb(snap)
     bf = snap.bodyfat_pct
     hrv = snap.hrv_ms
     rhr = snap.rhr_bpm

@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, root_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -65,16 +65,19 @@ class BodyMetricsIn(BaseModel):
     body_type: str | None = None
     source: str | None = "manual"
 
-    @root_validator
-    def validate_weight_positive(cls, values):
-        weight_kg = values.get("weight_kg")
-        weight_lb = values.get("weight_lb")
-        # Only enforce positivity if a weight value is actually provided
-        if weight_kg is not None and weight_kg <= 0:
+    @field_validator("weight_kg")
+    @classmethod
+    def validate_weight_kg_positive(cls, v):
+        if v is not None and v <= 0:
             raise ValueError("weight_kg must be greater than 0 when provided")
-        if weight_lb is not None and weight_lb <= 0:
+        return v
+
+    @field_validator("weight_lb")
+    @classmethod
+    def validate_weight_lb_positive(cls, v):
+        if v is not None and v <= 0:
             raise ValueError("weight_lb must be greater than 0 when provided")
-        return values
+        return v
 
 
 class BodyMetricsBatchIn(BaseModel):
